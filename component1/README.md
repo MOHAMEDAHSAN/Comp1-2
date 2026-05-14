@@ -21,3 +21,32 @@ Implement in this order:
 | P4 | A4 Node Storage/IO + A6 PVC | Storage-Saturation |
 | P5 | A4 Node Network + A5 Service | gRPC-Degradation |
 | P6 | A7 Events | All (context + reset triggers) |
+
+## Simulation & Testing
+
+A complete **synthetic Kubernetes cluster simulator** is available under [`./simulation/`](./simulation):
+
+### What It Does
+- Generates synthetic pod/node/service observations following the canonical schema
+- Simulates realistic metrics with jitter and aggregation
+- Supports deterministic fault injection patterns (OOM, CPU contention, probe cascade, etc.)
+- Outputs observations in NDJSON format for Component 2 ingestion
+
+### Quick Start
+```bash
+cd simulation
+pip install -r requirements.txt
+python test_run.py
+```
+
+This generates `observations_baseline.ndjson` (100 observations) that can be fed directly to Component 2.
+
+### Scenarios Supported
+- **baseline** — Healthy cluster (calibration)
+- **oom_cascade** — Memory leak → OOM → node evictions
+- **cpu_contention** — CPU throttling → probe timeout → restarts
+- **probe_cascade** — Memory pressure → probe latency → failures
+- **grpc_degradation** — Network packet loss → service degradation
+- **storage_saturation** — PVC space exhaustion
+
+See [`./simulation/README.md`](./simulation/README.md) for detailed architecture, test instructions, and scenario reference.

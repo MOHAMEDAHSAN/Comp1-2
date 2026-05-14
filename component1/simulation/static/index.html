@@ -1,0 +1,543 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>K8s Agent — Live Simulation</title>
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{overflow-x:hidden;max-width:100vw}
+body{background:#0d1117;color:#e6edf3;font-family:'Segoe UI',system-ui,sans-serif;font-size:13px}
+:root{--green:#3fb950;--yellow:#d29922;--red:#f85149;--blue:#58a6ff;--purple:#bc8cff;--border:#30363d;--card:#161b22;--card2:#1c2128}
+
+/* ── Header ── */
+header{display:flex;align-items:center;gap:16px;padding:12px 20px;border-bottom:1px solid var(--border);background:#0d1117;position:sticky;top:0;z-index:100}
+.logo{font-size:15px;font-weight:700;color:var(--blue);letter-spacing:.5px;white-space:nowrap}
+.logo span{color:#58a6ff88}
+#scenario-bar{display:flex;gap:6px;flex-wrap:wrap;flex:1}
+.sc-btn{padding:4px 12px;border-radius:20px;border:1px solid var(--border);background:var(--card2);color:#8b949e;cursor:pointer;font-size:12px;transition:all .2s}
+.sc-btn:hover{border-color:var(--blue);color:var(--blue)}
+.sc-btn.active{background:#1f6feb33;border-color:var(--blue);color:var(--blue);font-weight:600}
+.sc-btn.active.warn{background:#9e6a0333;border-color:var(--yellow);color:var(--yellow)}
+.sc-btn.active.danger{background:#f8514933;border-color:var(--red);color:var(--red)}
+#live-badge{display:flex;align-items:center;gap:5px;font-size:11px;color:#8b949e;white-space:nowrap}
+.pulse{width:7px;height:7px;border-radius:50%;background:var(--green);animation:pulse 1.5s infinite}
+@keyframes pulse{0%,100%{opacity:1;transform:scale(1)}50%{opacity:.4;transform:scale(.8)}}
+#tick-counter{font-size:11px;color:#8b949e;white-space:nowrap}
+
+/* ── Layout ── */
+main{display:grid;grid-template-columns:240px minmax(0,1fr);grid-template-rows:auto auto 1fr;gap:12px;padding:12px;min-height:calc(100vh - 53px);min-width:0}
+
+/* ── Node Panel ── */
+#node-panel{grid-column:1;grid-row:1/4;display:flex;flex-direction:column;gap:10px;min-width:0;overflow:hidden}
+.panel-title{font-size:11px;font-weight:600;color:#8b949e;text-transform:uppercase;letter-spacing:.8px;padding:0 2px 6px;border-bottom:1px solid var(--border)}
+.card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px}
+.gauge-row{display:flex;align-items:center;gap:10px;margin-bottom:8px}
+.gauge-label{width:55px;color:#8b949e;font-size:11px}
+.gauge-bar{flex:1;height:6px;background:#21262d;border-radius:3px;overflow:hidden}
+.gauge-fill{height:100%;border-radius:3px;transition:width .8s ease}
+.gauge-fill.cpu{background:var(--blue)}
+.gauge-fill.mem{background:var(--purple)}
+.gauge-fill.io{background:var(--yellow)}
+.gauge-fill.danger{background:var(--red)!important}
+.gauge-val{width:38px;text-align:right;font-size:11px;font-weight:600;color:#e6edf3}
+.metric-grid{display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-top:8px}
+.metric-chip{background:var(--card2);border-radius:6px;padding:7px 8px}
+.metric-chip .lbl{color:#8b949e;font-size:10px}
+.metric-chip .val{font-size:13px;font-weight:600;color:#e6edf3;margin-top:2px}
+
+/* ── Services ── */
+#services-row{grid-column:2;grid-row:1;display:flex;gap:10px;min-width:0}
+.svc-card{flex:1;background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px}
+.svc-name{font-weight:700;font-size:13px;margin-bottom:8px;display:flex;align-items:center;gap:6px}
+.dot{width:8px;height:8px;border-radius:50%;flex-shrink:0}
+.dot.green{background:var(--green)}
+.dot.yellow{background:var(--yellow)}
+.dot.red{background:var(--red)}
+.svc-stats{display:grid;grid-template-columns:1fr 1fr;gap:5px}
+.svc-stat{font-size:11px;color:#8b949e}.svc-stat span{color:#e6edf3;font-weight:600}
+
+/* ── Charts row ── */
+#charts-row{grid-column:2;grid-row:2;display:grid;grid-template-columns:1fr 1fr;gap:10px;min-width:0}
+.chart-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;min-width:0}
+.chart-title{font-size:11px;color:#8b949e;margin-bottom:8px;font-weight:600}
+.chart-card canvas{display:block;max-width:100%}
+
+/* ── Pods + Events ── */
+#bottom-row{grid-column:2;grid-row:3;display:grid;grid-template-columns:1fr 300px;gap:10px;min-width:0}
+#pods-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(175px,1fr));gap:8px;align-content:start;min-width:0}
+.pod-card{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:10px;transition:border-color .3s}
+.pod-card.warn{border-color:var(--yellow)}
+.pod-card.danger{border-color:var(--red);box-shadow:0 0 10px #f8514922}
+.pod-header{display:flex;align-items:center;gap:6px;margin-bottom:8px}
+.pod-name{font-size:11px;font-weight:600;color:#e6edf3;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;flex:1}
+.phase-badge{font-size:9px;padding:2px 6px;border-radius:10px;font-weight:700;white-space:nowrap}
+.phase-badge.Running{background:#1f6feb33;color:var(--blue)}
+.phase-badge.Failed{background:#f8514933;color:var(--red)}
+.phase-badge.Pending{background:#d2992233;color:var(--yellow)}
+.pod-rows{display:flex;flex-direction:column;gap:4px}
+.pod-row{display:flex;align-items:center;gap:6px}
+.pod-row-lbl{width:32px;font-size:10px;color:#8b949e}
+.pod-bar{flex:1;height:4px;background:#21262d;border-radius:2px;overflow:hidden}
+.pod-bar-fill{height:100%;border-radius:2px;transition:width .8s}
+.pod-bar-fill.cpu-c{background:var(--blue)}
+.pod-bar-fill.mem-c{background:var(--purple)}
+.pod-bar-val{width:32px;text-align:right;font-size:10px;font-weight:600}
+.pod-tags{display:flex;gap:4px;margin-top:7px;flex-wrap:wrap}
+.tag{font-size:9px;padding:2px 5px;border-radius:4px;font-weight:600}
+.tag.ok{background:#3fb95022;color:var(--green)}
+.tag.warn{background:#d2992222;color:var(--yellow)}
+.tag.bad{background:#f8514922;color:var(--red)}
+.tag.info{background:#58a6ff22;color:var(--blue)}
+.details-btn{margin-top:8px;width:100%;padding:4px 0;border-radius:5px;border:1px solid var(--border);background:transparent;color:#8b949e;font-size:10px;cursor:pointer;transition:all .15s}
+.details-btn:hover{border-color:var(--blue);color:var(--blue);background:#1f6feb11}
+
+/* ── Scenario progress ── */
+#sc-progress-bar{height:3px;background:var(--blue);width:0%;transition:width .5s;position:sticky;top:53px;z-index:99}
+#sc-banner{display:flex;align-items:center;gap:8px;padding:4px 20px;background:#0d1117;border-bottom:1px solid var(--border);font-size:11px;color:#8b949e;position:sticky;top:56px;z-index:98}
+#sc-name{font-weight:600;color:#e6edf3}
+#sc-phase{color:#8b949e}
+#sc-tick-prog{margin-left:auto;font-size:10px}
+
+/* ── Drawer ── */
+#drawer-overlay{display:none;position:fixed;inset:0;background:#00000077;z-index:200}
+#drawer{position:fixed;top:0;right:-520px;width:520px;height:100vh;background:#161b22;border-left:1px solid var(--border);z-index:201;transition:right .3s ease;overflow-y:auto;padding:20px}
+#drawer.open{right:0}
+#drawer-close{float:right;background:transparent;border:1px solid var(--border);color:#8b949e;border-radius:5px;padding:4px 10px;cursor:pointer;font-size:12px}
+#drawer-title{font-size:15px;font-weight:700;color:#e6edf3;margin-bottom:4px}
+#drawer-sub{font-size:11px;color:#8b949e;margin-bottom:16px}
+.d-section{font-size:10px;font-weight:700;color:#8b949e;text-transform:uppercase;letter-spacing:.8px;margin:14px 0 6px;border-bottom:1px solid var(--border);padding-bottom:4px}
+.d-row{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #21262d;font-size:12px}
+.d-key{color:#8b949e;font-family:monospace;font-size:11px}
+.d-val{color:#e6edf3;font-weight:600;text-align:right;max-width:60%;word-break:break-all}
+.d-val.ok{color:#3fb950}.d-val.warn{color:#d29922}.d-val.bad{color:#f85149}
+
+/* ── Event Log ── */
+#event-log{background:var(--card);border:1px solid var(--border);border-radius:8px;padding:12px;display:flex;flex-direction:column;max-height:100%}
+#events-list{flex:1;overflow-y:auto;margin-top:8px;display:flex;flex-direction:column;gap:4px}
+.evt{border-radius:5px;padding:5px 8px;font-size:11px;border-left:3px solid transparent;background:var(--card2)}
+.evt.error{border-color:var(--red);color:#ffa198}
+.evt.warning{border-color:var(--yellow);color:#e3b341}
+.evt.info{border-color:var(--blue);color:#79c0ff}
+.evt-time{color:#8b949e;font-size:10px;margin-left:4px}
+#no-events{color:#8b949e;font-style:italic;font-size:12px;margin-top:12px}
+</style>
+</head>
+<body>
+<header>
+  <div class="logo">⎈ K8s Agent <span>/ sim</span></div>
+  <!-- Scenario controls removed — real K8s mode -->
+  <div style="flex:1"></div>
+  <div id="live-badge"><div class="pulse"></div>LIVE</div>
+  <div id="save-status" style="display:flex;align-items:center;gap:6px;font-size:11px;color:#8b949e;white-space:nowrap">
+    <span id="save-icon">💾</span>
+    <span id="save-label">not saved</span>
+    <button onclick="saveNow()" style="padding:3px 8px;border-radius:4px;border:1px solid var(--border);background:transparent;color:#8b949e;cursor:pointer;font-size:10px">Save Now</button>
+  </div>
+  <div id="tick-counter">tick —</div>
+</header>
+<div id="sc-progress-bar"></div>
+<div id="sc-banner"><span id="sc-name">Baseline</span><span id="sc-phase">— Normal cluster operation. No faults injected. All metrics at baseline.</span><span id="sc-tick-prog"></span></div>
+<!-- Drawer -->
+<div id="drawer-overlay" onclick="closeDrawer()"></div>
+<div id="drawer">
+  <button id="drawer-close" onclick="closeDrawer()">✕ Close</button>
+  <div id="drawer-title">Pod Details</div>
+  <div id="drawer-sub"></div>
+  <div id="drawer-body"></div>
+</div>
+
+<main>
+  <!-- Node Panel -->
+  <div id="node-panel">
+    <div class="card">
+      <div class="panel-title">node-1</div>
+      <div style="margin-top:10px">
+        <div class="gauge-row"><span class="gauge-label">CPU</span><div class="gauge-bar"><div class="gauge-fill cpu" id="g-cpu" style="width:0%"></div></div><span class="gauge-val" id="v-cpu">—</span></div>
+        <div class="gauge-row"><span class="gauge-label">Memory</span><div class="gauge-bar"><div class="gauge-fill mem" id="g-mem" style="width:0%"></div></div><span class="gauge-val" id="v-mem">—</span></div>
+        <div class="gauge-row"><span class="gauge-label">Disk IO</span><div class="gauge-bar"><div class="gauge-fill io" id="g-io" style="width:0%"></div></div><span class="gauge-val" id="v-io">—</span></div>
+        <div class="gauge-row"><span class="gauge-label">IO PSI</span><div class="gauge-bar"><div class="gauge-fill io" id="g-psi" style="width:0%"></div></div><span class="gauge-val" id="v-psi">—</span></div>
+      </div>
+      <div class="metric-grid">
+        <div class="metric-chip"><div class="lbl">TCP Retrans</div><div class="val" id="v-retrans">—</div></div>
+        <div class="metric-chip"><div class="lbl">Conntrack</div><div class="val" id="v-conntrack">—</div></div>
+        <div class="metric-chip"><div class="lbl">DNS p99</div><div class="val" id="v-dns">—</div></div>
+        <div class="metric-chip"><div class="lbl">DNS Fail/s</div><div class="val" id="v-dnsfail">—</div></div>
+        <div class="metric-chip"><div class="lbl">CPU PSI</div><div class="val" id="v-cpupsi">—</div></div>
+        <div class="metric-chip"><div class="lbl">Mem PSI</div><div class="val" id="v-mempsi">—</div></div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="panel-title">Conditions</div>
+      <div id="conditions" style="margin-top:8px;display:flex;flex-wrap:wrap;gap:5px"></div>
+    </div>
+    <div class="card">
+      <div class="panel-title">Capability Flags</div>
+      <div id="caps" style="margin-top:8px;display:flex;flex-direction:column;gap:4px"></div>
+    </div>
+  </div>
+
+  <!-- Services -->
+  <div id="services-row">
+    <div class="svc-card" id="svc-frontend">
+      <div class="svc-name"><div class="dot green" id="dot-frontend"></div>frontend</div>
+      <div class="svc-stats" id="stats-frontend"></div>
+    </div>
+    <div class="svc-card" id="svc-backend">
+      <div class="svc-name"><div class="dot green" id="dot-backend"></div>backend</div>
+      <div class="svc-stats" id="stats-backend"></div>
+    </div>
+    <div class="svc-card" id="svc-redis">
+      <div class="svc-name"><div class="dot green" id="dot-redis"></div>redis</div>
+      <div class="svc-stats" id="stats-redis"></div>
+    </div>
+  </div>
+
+  <!-- Charts -->
+  <div id="charts-row">
+    <div class="chart-card"><div class="chart-title">&#x25A0; Node CPU Usage % <span style="color:#58a6ff66;font-weight:400;font-size:10px">— % of 4 cores used across all pods</span></div><canvas id="chart-cpu" height="140"></canvas></div>
+    <div class="chart-card"><div class="chart-title">&#x25A0; Memory Available % <span style="color:#bc8cff66;font-weight:400;font-size:10px">— free memory as % of 8 GiB node total</span></div><canvas id="chart-mem" height="140"></canvas></div>
+    <div class="chart-card"><div class="chart-title">&#x25A0; TCP Retransmit Rate % <span style="color:#f8514966;font-weight:400;font-size:10px">— retrans/outsegs &gt;1% = gRPC risk</span></div><canvas id="chart-tcp" height="140"></canvas></div>
+    <div class="chart-card"><div class="chart-title">&#x25A0; Disk IO Weighted % <span style="color:#d2992266;font-weight:400;font-size:10px">— io_time_weighted proxy for queue depth</span></div><canvas id="chart-io" height="140"></canvas></div>
+  </div>
+
+  <!-- Pods + Events -->
+  <div id="bottom-row">
+    <div id="pods-grid"></div>
+    <div id="event-log">
+      <div class="panel-title">Event Stream</div>
+      <div id="events-list"><div id="no-events">No events yet...</div></div>
+    </div>
+  </div>
+</main>
+
+<script>
+// ── Chart setup ──────────────────────────────────────────────────────────────
+const CHART_OPTS = (label, color) => ({
+  type:'line',
+  data:{ labels:[], datasets:[{label, data:[], borderColor:color, backgroundColor:color+'22', borderWidth:1.5, pointRadius:0, fill:true, tension:0.4}]},
+  options:{
+    animation:false, responsive:true,
+    interaction:{mode:'index', intersect:false},
+    plugins:{
+      legend:{display:false},
+      tooltip:{
+        backgroundColor:'#1c2128', borderColor:'#30363d', borderWidth:1,
+        titleColor:'#8b949e', bodyColor:'#e6edf3', padding:8,
+        callbacks:{label:ctx=>`${ctx.dataset.label}: ${(+ctx.parsed.y).toFixed(3)}`}
+      }
+    },
+    scales:{ x:{display:false}, y:{display:true, grid:{color:'#21262d'}, ticks:{color:'#8b949e', font:{size:9}}} }
+  }
+});
+const mkChart = (id,label,color) => new Chart(document.getElementById(id), CHART_OPTS(label,color));
+const charts = {
+  cpu: mkChart('chart-cpu','CPU %','#58a6ff'),
+  mem: mkChart('chart-mem','Mem Avail %','#bc8cff'),
+  tcp: mkChart('chart-tcp','TCP Retrans %','#f85149'),
+  io:  mkChart('chart-io','IO Weighted %','#d29922'),
+};
+const MAX_POINTS = 40;
+function pushChart(ch, val) {
+  const d = ch.data;
+  const now = new Date().toLocaleTimeString('en',{hour12:false,hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  d.labels.push(now); d.datasets[0].data.push(+(val||0).toFixed(4));
+  if(d.labels.length>MAX_POINTS){d.labels.shift();d.datasets[0].data.shift();}
+  ch.update();
+}
+
+// ── Helpers ──────────────────────────────────────────────────────────────────
+const pct = v => `${(+v||0).toFixed(1)}%`;
+const ms  = v => `${v}ms`;
+const fix  = (v,n=3) => (+v||0).toFixed(n);
+function setGauge(gid, vid, val, max=100, suffix='%') {
+  const pctW = Math.min(100, (val/max)*100);
+  const el = document.getElementById(gid);
+  el.style.width = pctW+'%';
+  el.className = 'gauge-fill '+(gid.includes('cpu')?'cpu':gid.includes('mem')?'mem':'io')+(pctW>85?' danger':'');
+  document.getElementById(vid).textContent = val.toFixed(1)+suffix;
+}
+function colorClass(val, warn, danger) { return val>=danger?'bad':val>=warn?'warn':'ok'; }
+
+// ── Scenario buttons ──────────────────────────────────────────────────────────
+const SC_META = {
+  baseline:          {color:'var(--blue)',   phase:'Normal operation — no faults. Baseline calibration mode.'},
+  probe_cascade:     {color:'var(--yellow)', phase:'Memory pressure → probe latency → consecutive failures → restart loop'},
+  cpu_contention:    {color:'var(--yellow)', phase:'Shared-core contention → CFS throttling → latency spike → probe timeout'},
+  oom_cascade:       {color:'var(--red)',    phase:'Memory leak → OOMKilled → node eviction → cascade failure'},
+  grpc_degradation:  {color:'var(--red)',    phase:'TCP retransmits + DNS slowness → gRPC deadline exceeded → error rate spike'},
+  storage_saturation:{color:'var(--red)',    phase:'Disk IO saturation → PSI waiting → pods hang on write() → probe timeout'},
+};
+let currentScenario='baseline', scenarioTick=0;
+document.querySelectorAll('.sc-btn').forEach(btn => {
+  btn.addEventListener('click', async () => {
+    const s = btn.dataset.s;
+    const res = await fetch(`/api/scenario/${s}`,{method:'POST'});
+    document.querySelectorAll('.sc-btn').forEach(b=>b.classList.remove('active'));
+    btn.classList.add('active'); currentScenario=s; scenarioTick=0;
+    const m = SC_META[s]||{};
+    document.getElementById('sc-name').textContent = btn.textContent;
+    document.getElementById('sc-name').style.color = m.color||'var(--blue)';
+    document.getElementById('sc-phase').textContent = '— '+(m.phase||'');
+    document.getElementById('sc-progress-bar').style.background = m.color||'var(--blue)';
+    document.getElementById('sc-progress-bar').style.width='0%';
+  });
+});
+
+// ── SSE ───────────────────────────────────────────────────────────────────────
+const evtLog = document.getElementById('events-list');
+const noEvts = document.getElementById('no-events');
+const allEvents = [];
+
+function addEvent(evt) {
+  if(noEvts) noEvts.remove();
+  const d = document.createElement('div');
+  d.className = `evt ${evt['event.severity']||'info'}`;
+  const t = new Date(evt['event.timestamp_ms']).toLocaleTimeString();
+  d.innerHTML = `<b>${evt['event.type']}</b> → ${evt['event.affected_id']} <span class="evt-time">${t}</span>`;
+  evtLog.insertBefore(d, evtLog.firstChild);
+  while(evtLog.children.length > 50) evtLog.removeChild(evtLog.lastChild);
+}
+
+function renderPod(pod) {
+  const id = pod['pod.id'].replace(/\//g,'-');
+  const phase = pod['pod.phase'];
+  const cpu = +pod['pod.cpu.usage_percent'];
+  const mem = +pod['pod.memory.working_set_pct'];
+  const throttle = +pod['pod.cpu.throttle_ratio'];
+  const restarts = +pod['pod.restart_count'];
+  const probeOk = pod['pod.probe.last_succeeded'];
+  const failures = +pod['pod.probe.consecutive_failures'];
+  const isWarn = mem>70 || throttle>0.3 || failures>0;
+  const isDanger = mem>90 || failures>=3 || phase==='Failed' || pod['pod.crash_loop_active'];
+  let card = document.getElementById(`pod-${id}`);
+  if (!card) {
+    card = document.createElement('div'); card.id=`pod-${id}`;
+    card.className='pod-card'; document.getElementById('pods-grid').appendChild(card);
+  }
+  card.className = `pod-card${isDanger?' danger':isWarn?' warn':''}`;
+  const shortName = pod['pod.id'].split('/')[1];
+  const svc = pod['pod.labels']?.app || '?';
+  // store latest pod data for drawer
+  card._podData = pod;
+  card.innerHTML = `
+    <div class="pod-header">
+      <span class="pod-name" title="${pod['pod.id']}">${shortName}</span>
+      <span class="phase-badge ${phase}">${phase}</span>
+    </div>
+    <div class="pod-rows">
+      <div class="pod-row">
+        <span class="pod-row-lbl" title="CPU usage as % of container limit">CPU</span>
+        <div class="pod-bar"><div class="pod-bar-fill cpu-c" style="width:${Math.min(100,cpu)}%"></div></div>
+        <span class="pod-bar-val" style="color:${cpu>80?'#f85149':cpu>50?'#d29922':'#58a6ff'}">${cpu.toFixed(1)}%</span>
+      </div>
+      <div class="pod-row">
+        <span class="pod-row-lbl" title="Memory working set as % of limit (what OOM killer compares)">MEM</span>
+        <div class="pod-bar"><div class="pod-bar-fill mem-c" style="width:${Math.min(100,mem)}%"></div></div>
+        <span class="pod-bar-val" style="color:${mem>85?'#f85149':mem>65?'#d29922':'#bc8cff'}">${mem.toFixed(1)}%</span>
+      </div>
+    </div>
+    <div class="pod-tags">
+      <span class="tag info">${svc}</span>
+      ${throttle>0.05?`<span class="tag ${throttle>0.5?'bad':'warn'}" title="CFS throttle: % of scheduling periods throttled">throttle ${(throttle*100).toFixed(0)}%</span>`:''}
+      ${restarts>0?`<span class="tag ${restarts>3?'bad':'warn'}" title="Total container restarts">↺${restarts}</span>`:''}
+      ${!probeOk?`<span class="tag bad" title="Liveness probe failing">probe✗ (${failures})</span>`:'<span class="tag ok" title="Liveness probe passing">probe✓</span>'}
+      ${pod['pod.crash_loop_active']?'<span class="tag bad">CrashLoop</span>':''}
+    </div>
+    <button class="details-btn" onclick="openDrawer('${pod['pod.id']}')">Details →</button>`;
+}
+
+function renderService(svc) {
+  const name = svc['service.id'].split('/')[1];
+  const errPct = (+svc['service.error_rate']*100).toFixed(2);
+  const ready = svc['service.ready_replicas'];
+  const desired = svc['service.hpa_desired_replicas'];
+  const dotEl = document.getElementById(`dot-${name}`);
+  if (dotEl) dotEl.className = `dot ${ready===0?'red':ready<desired?'yellow':'green'}`;
+  const el = document.getElementById(`stats-${name}`);
+  if (!el) return;
+  el.innerHTML = `
+    <div class="svc-stat">Ready <span>${ready}/${desired}</span></div>
+    <div class="svc-stat">QPS <span>${(+svc['service.qps']||0).toFixed(1)}</span></div>
+    <div class="svc-stat">p50 <span>${svc['service.latency_p50_ms']}ms</span></div>
+    <div class="svc-stat">p99 <span>${svc['service.latency_p99_ms']}ms</span></div>
+    <div class="svc-stat">Errors <span style="color:${+errPct>1?'#f85149':+errPct>0.1?'#d29922':'#3fb950'}">${errPct}%</span></div>
+    <div class="svc-stat">Unavail <span>${svc['service.unavailable_replicas']}</span></div>`;
+}
+
+function renderNode(nm) {
+  setGauge('g-cpu','v-cpu', +nm['node.cpu.usage_percent'], 100);
+  setGauge('g-mem','v-mem', 100-(+nm['node.memory.available_pct']||0), 100);
+  setGauge('g-io','v-io',  (+nm['node.storage.disk_io_weighted_rate']||0)*100, 100);
+  setGauge('g-psi','v-psi',(+nm['node.storage.io_pressure_waiting_rate']||0)*100, 100);
+  document.getElementById('v-retrans').textContent = fix(nm['node.net.tcp_retrans_rate']*100,3)+'%';
+  document.getElementById('v-retrans').style.color = nm['node.net.tcp_retrans_rate']>0.01?'#f85149':nm['node.net.tcp_retrans_rate']>0.002?'#d29922':'#3fb950';
+  document.getElementById('v-conntrack').textContent = (nm['node.net.conntrack_utilization']*100).toFixed(1)+'%';
+  document.getElementById('v-dns').textContent = nm['node.net.dns_latency_p99_ms']+'ms';
+  document.getElementById('v-dns').style.color = nm['node.net.dns_latency_p99_ms']>100?'#f85149':nm['node.net.dns_latency_p99_ms']>30?'#d29922':'#e6edf3';
+  document.getElementById('v-dnsfail').textContent = fix(nm['node.net.dns_servfail_rate'],2)+'/s';
+  document.getElementById('v-dnsfail').style.color = nm['node.net.dns_servfail_rate']>1?'#f85149':'#e6edf3';
+  document.getElementById('v-cpupsi').textContent = (nm['node.cpu.pressure_waiting_rate']*100).toFixed(1)+'%';
+  document.getElementById('v-mempsi').textContent = (nm['node.memory.pressure_waiting_rate']*100).toFixed(1)+'%';
+  // Conditions
+  const conds = nm['node.conditions']||[];
+  document.getElementById('conditions').innerHTML = conds.map(c =>
+    `<span class="tag ${c==='Ready'?'ok':'bad'}">${c}</span>`).join('');
+  // Charts
+  pushChart(charts.cpu, nm['node.cpu.usage_percent']);
+  pushChart(charts.mem, nm['node.memory.available_pct']);
+  pushChart(charts.tcp, (nm['node.net.tcp_retrans_rate']||0)*100);
+  pushChart(charts.io,  (nm['node.storage.disk_io_weighted_rate']||0)*100);
+}
+
+function renderCaps(cap) {
+  const flags = ['has_kubernetes_api','has_prometheus','has_kubelet_metrics','has_logs','has_service_mesh'];
+  const desc  = {has_kubernetes_api:'K8s API',has_prometheus:'Prometheus',has_kubelet_metrics:'Kubelet',has_logs:'Logs',has_service_mesh:'Service Mesh'};
+  document.getElementById('caps').innerHTML = flags.map(f =>
+    `<div style="display:flex;justify-content:space-between;font-size:11px;padding:2px 0" title="${cap['capability.'+f]?'Available':'MISSING — some playbooks will run in PARTIAL mode'}">
+       <span style="color:#8b949e">${desc[f]||f}</span>
+       <span style="${cap['capability.'+f]?'color:#3fb950':'color:#f85149'}">${cap['capability.'+f]?'✓ active':'✗ missing'}</span>
+     </div>`
+  ).join('');
+}
+
+// ── Pod Detail Drawer ─────────────────────────────────────────────────────────
+const podStore = {};
+function openDrawer(podId) {
+  const pod = podStore[podId]; if(!pod) return;
+  document.getElementById('drawer-overlay').style.display='block';
+  document.getElementById('drawer').classList.add('open');
+  document.getElementById('drawer-title').textContent = podId.split('/')[1];
+  document.getElementById('drawer-sub').textContent = `namespace: ${pod['pod.namespace']}  |  node: ${pod['pod.node_name']}  |  service: ${pod['pod.labels']?.app||'?'}`;
+  const sections = [
+    ['Identity & Lifecycle', ['pod.id','pod.namespace','pod.node_name','pod.phase','pod.last_terminated_reason','pod.restart_count','pod.restart_delta','pod.crash_loop_active']],
+    ['CPU Metrics (X — CPU Contention playbook)', ['pod.cpu.usage_percent','pod.cpu.throttle_ratio','pod.cpu.throttle_ms']],
+    ['Memory Metrics (X — OOM + Probe Cascade playbooks)', ['pod.memory.working_set_bytes','pod.memory.working_set_pct','pod.memory.rss_bytes','pod.memory.limit_hit_count','pod.memory.oom_events','pod.memory.major_fault_rate']],
+    ['Probe Metrics (X — Probe Cascade playbook)', ['pod.probe.type','pod.probe.latency_ms','pod.probe.consecutive_failures','pod.probe.last_succeeded','pod.probe.failure_event_count']],
+    ['Network Metrics (X — gRPC Degradation playbook)', ['pod.net.rx_bytes_rate','pod.net.tx_bytes_rate','pod.net.rx_drop_rate']],
+    ['Storage Metrics (X — Storage Saturation playbook)', ['pod.storage.used_bytes','pod.storage.capacity_bytes','pod.storage.used_pct']],
+  ];
+  const thresholds = {
+    'pod.cpu.throttle_ratio':{warn:0.3,bad:0.7},
+    'pod.memory.working_set_pct':{warn:70,bad:90},
+    'pod.probe.latency_ms':{warn:500,bad:1500},
+    'pod.probe.consecutive_failures':{warn:1,bad:3},
+    'pod.memory.oom_events':{warn:1,bad:3},
+    'pod.net.rx_drop_rate':{warn:1,bad:10},
+    'pod.storage.used_pct':{warn:75,bad:90},
+  };
+  let html='';
+  for(const [title,keys] of sections){
+    html+=`<div class="d-section">${title}</div>`;
+    for(const k of keys){
+      let v = pod[k]; if(v===undefined) continue;
+      let cls=''; const t=thresholds[k];
+      if(t && typeof v==='number'){cls=v>=t.bad?'bad':v>=t.warn?'warn':'ok';}
+      if(typeof v==='boolean') cls=v?'ok':'warn';
+      const disp = typeof v==='number'&&v>1e6 ? (v/1048576).toFixed(1)+' MiB' : typeof v==='object'?JSON.stringify(v):String(v);
+      html+=`<div class="d-row"><span class="d-key">${k}</span><span class="d-val ${cls}">${disp}</span></div>`;
+    }
+  }
+  document.getElementById('drawer-body').innerHTML=html;
+}
+function closeDrawer(){
+  document.getElementById('drawer-overlay').style.display='none';
+  document.getElementById('drawer').classList.remove('open');
+}
+
+// ── Main SSE listener ─────────────────────────────────────────────────────────
+const es = new EventSource('/api/stream');
+es.onmessage = e => {
+  const obs = JSON.parse(e.data);
+  // Not connected yet — show overlay
+  if (!obs.pod_metrics) {
+    showConnecting(obs._connected === false);
+    return;
+  }
+  hideConnecting();
+  document.getElementById('tick-counter').textContent =
+    `tick ${obs._tick ?? obs._sim_tick ?? '—'}`;
+  document.getElementById('live-badge').innerHTML = '<div class="pulse"></div>LIVE (K8s)';
+  // Node
+  if (obs.node_metrics?.[0]) renderNode(obs.node_metrics[0]);
+  // Capability
+  if (obs.capability) renderCaps(obs.capability);
+  // Services
+  (obs.service_metrics||[]).forEach(renderService);
+  // Pods — store latest data then render
+  (obs.pod_metrics||[]).forEach(p => { podStore[p['pod.id']]=p; renderPod(p); });
+  // Prune pods that no longer exist
+  const activePodIds = new Set((obs.pod_metrics||[]).map(p=>p['pod.id']));
+  document.querySelectorAll('.pod-card').forEach(card => {
+    const pid = card.id.replace('pod-','').replace(/-/g,'/');
+    if (!activePodIds.has(card._podData?.['pod.id'])) card.remove();
+  });
+  // Events
+  (obs.events||[]).forEach(addEvent);
+};
+es.onerror = () => {
+  document.getElementById('live-badge').innerHTML = '<span style="color:#f85149">&#9679; DISCONNECTED</span>';
+  showConnecting(true);
+};
+
+function showConnecting(offline) {
+  let ov = document.getElementById('k8s-overlay');
+  if (!ov) {
+    ov = document.createElement('div');
+    ov.id = 'k8s-overlay';
+    ov.style.cssText = 'position:fixed;inset:0;background:#0d1117ee;display:flex;flex-direction:column;align-items:center;justify-content:center;z-index:9999;gap:16px';
+    document.body.appendChild(ov);
+  }
+  ov.innerHTML = `
+    <div style="font-size:48px">☸️</div>
+    <div style="font-size:18px;font-weight:700;color:#58a6ff">Connecting to Kubernetes...</div>
+    <div style="color:#8b949e;font-size:13px;text-align:center;max-width:400px">
+      ${offline
+        ? 'Cluster offline. <br>Open <b>Docker Desktop → Settings → Kubernetes → ✅ Enable Kubernetes → Apply &amp; Restart</b>'
+        : 'Waiting for cluster data...'}
+    </div>
+    <div style="width:200px;height:4px;background:#21262d;border-radius:2px;overflow:hidden">
+      <div style="height:100%;background:var(--blue);animation:progress-stripe 1.5s linear infinite;width:40%;border-radius:2px"></div>
+    </div>`;
+  if (!document.getElementById('stripe-style')) {
+    const s = document.createElement('style');
+    s.id = 'stripe-style';
+    s.textContent = '@keyframes progress-stripe{0%{margin-left:-40%}100%{margin-left:100%}}';
+    document.head.appendChild(s);
+  }
+}
+function hideConnecting() {
+  const ov = document.getElementById('k8s-overlay');
+  if (ov) ov.remove();
+}
+
+// ── Save functions ────────────────────────────────────────────────────────────
+async function saveNow() {
+  const lbl = document.getElementById('save-label');
+  const icon = document.getElementById('save-icon');
+  lbl.textContent = 'saving...'; icon.textContent = '⏳';
+  const r = await fetch('/api/save-now', {method:'POST'});
+  const d = await r.json();
+  icon.textContent = '💾';
+  lbl.textContent = `saved ${d.obs_count} obs`;
+  lbl.style.color = '#3fb950';
+  setTimeout(()=>{ lbl.style.color=''; }, 3000);
+}
+// Poll save status every 30s
+async function pollSaveStatus() {
+  try {
+    const r = await fetch('/api/save-status');
+    const d = await r.json();
+    if (d.file_count > 0) {
+      document.getElementById('save-label').textContent =
+        `${d.file_count} file(s), ${d.total_saved} obs total`;
+    }
+  } catch(_) {}
+}
+setInterval(pollSaveStatus, 30000);
+pollSaveStatus();
+
+</script>
+</body>
+</html>
