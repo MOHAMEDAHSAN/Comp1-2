@@ -1,0 +1,17 @@
+X Features
+75 total X fields
+ ├── 13 identifiers/metadata  (not fed into models)
+ ├──  6 capability flags       (meta-features about data availability)
+ └── 56 statistical features   ← actual model inputs
+
+Y Outputs
+Group	Fields	Count
+Primary labels (one score per playbook)	probe_cascade_score, cpu_contention_score, oom_cascade_score, grpc_degradation_score, storage_saturation_score	5
+PlaybookFiringEvent fields	playbook_id, firing_state, confidence, affected_pod_ids, evidence.*, reason	11
+Intermediate per-metric Y	baseline.z_score, anomaly_flag, trend, mean, stddev, etc.	7
+
+
+Count
+Statistical X features (model inputs)	56
+Primary Y labels (playbook scores)	5
+Total schema fields (including metadata + event fields)	98

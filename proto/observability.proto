@@ -1,0 +1,273 @@
+syntax = "proto3";
+
+package kubernetes_agent.observability;
+
+option go_package = "github.com/kubernetes-agent/component1/proto/observability";
+
+// ============================================================================
+// Core Data Models
+// ============================================================================
+
+/**
+ * NormalizedObservation is the primary data structure sent from Component 1
+ * to Component 2. It contains all relevant Kubernetes cluster state,
+ * metrics, and events in a normalized, canonical form.
+ *
+ * This message is sent approximately every 30 seconds per cluster.
+ */
+message NormalizedObservation {
+  // ========== Identifiers ==========
+  string tenant_id = 1;           // Customer ID; required for tenancy isolation
+  string cluster_name = 2;        // Cluster identifier; allows multi-cluster future
+  int64 timestamp_ms = 3;         // Observation timestamp (milliseconds since epoch)
+
+  // ========== Topology & State ==========
+  repeated PodMetrics pod_metrics = 4;          // Per-pod metrics and state
+  repeated ServiceMetrics service_metrics = 5;  // Per-service metrics
+  repeated NodeMetrics node_metrics = 6;        // Per-node metrics
+
+  // ========== Events & Logs ==========
+  repeated ClusterEvent events = 7;             // Cluster-level events (restarts, deploys, errors)
+
+  // ========== Capability Reporting ==========
+  CapabilityFlags capability = 8;               // Which data sources available for this observation
+
+  // ========== Metadata ==========
+  map<string, string> tags = 9;  // Optional tags for filtering/grouping
+}
+
+// ============================================================================
+// Pod Metrics
+// ============================================================================
+
+/**
+ * PodMetrics captures metrics and state for a single pod.
+ */
+message PodMetrics {
+  // ========== Identifiers ==========
+  string pod_id = 1;           // Format: "namespace/pod-name"
+  string namespace = 2;
+  string pod_name = 3;
+  
+  // ========== Labels & Metadata ==========
+  map<string, string> labels = 4;  // Kubernetes labels (e.g., app=web, version=v1)
+  string node_name = 5;            // Node pod is scheduled on
+  string phase = 6;                // Pod phase: Running, Pending, Failed, etc.
+
+  // ========== Resource Usage ==========
+  ResourceMetrics cpu = 7;         // CPU metrics
+  ResourceMetrics memory = 8;      // Memory metrics
+  ResourceMetrics storage = 9;     // Storage/PVC metrics (optional)
+
+  // ========== Container State ==========
+  int32 restart_count = 10;                    // Total container restarts
+  int64 last_restart_time_ms = 11;             // When last restart occurred
+  repeated ContainerMetrics containers = 12;   // Per-container breakdown
+
+  // ========== Probe Metrics ==========
+  repeated ProbeMetric probes = 13;   // Liveness, readiness, startup probes
+
+  // ========== Network (Optional) ==========
+  NetworkMetrics network = 14;
+
+  // ========== Observed Errors ==========
+  repeated PodError errors = 15;  // Recent errors from logs or kubelet
+}
+
+/**
+ * ResourceMetrics captures resource usage for CPU, memory, or storage.
+ */
+message ResourceMetrics {
+  double usage_percent = 1;    // Usage as percentage of limit (0-100)
+  double limit_bytes = 2;      // Limit in bytes
+  double request_bytes = 3;    // Requested amount in bytes
+  double usage_bytes = 4;      // Current usage in bytes
+  double throttle_ms = 5;      // (CPU only) Time spent throttled (milliseconds)
+}
+
+/**
+ * ProbeMetric captures health check metrics for a probe.
+ */
+message ProbeMetric {
+  string probe_type = 1;         // "liveness", "readiness", "startup"
+  int32 latency_ms = 2;          // How long probe took (milliseconds)
+  bool last_probe_succeeded = 3; // Did probe succeed on last attempt?
+  int32 failure_threshold = 4;   // Kubelet config: failures before action
+  int32 consecutive_failures = 5; // Current consecutive failure count
+}
+
+/**
+ * ContainerMetrics breaks down metrics per container within a pod.
+ * (Used if you need per-container granularity; often omitted in v1)
+ */
+message ContainerMetrics {
+  string container_name = 1;
+  ResourceMetrics cpu = 2;
+  ResourceMetrics memory = 3;
+  int32 restart_count = 4;
+}
+
+/**
+ * NetworkMetrics captures network I/O metrics.
+ */
+message NetworkMetrics {
+  int64 bytes_sent = 1;           // Total bytes sent since pod start
+  int64 bytes_received = 2;       // Total bytes received since pod start
+  int32 open_connections = 3;     // Current open TCP connections
+  int32 listen_ports = 4;         // Number of listening ports
+}
+
+/**
+ * PodError represents an error extracted from pod logs or kubelet.
+ */
+message PodError {
+  int64 timestamp_ms = 1;    // When error occurred
+  string error_type = 2;     // "OOMKilled", "CrashLoopBackOff", "Error", "Unknown"
+  string message = 3;        // Error message text
+  int32 count = 4;           // How many times this error seen recently
+}
+
+// ============================================================================
+// Service Metrics
+// ============================================================================
+
+/**
+ * ServiceMetrics captures metrics aggregated at the service level.
+ */
+message ServiceMetrics {
+  string service_id = 1;        // Format: "namespace/service-name"
+  string namespace = 2;
+  string service_name = 3;
+  
+  map<string, string> labels = 4;  // Kubernetes labels
+  
+  int32 ready_replicas = 5;     // How many pods ready
+  int32 desired_replicas = 6;   // How many pods desired
+  
+  double qps = 7;               // Requests per second (if observable)
+  double latency_p50_ms = 8;    // Latency (50th percentile)
+  double latency_p99_ms = 9;    // Latency (99th percentile)
+  double error_rate = 10;       // Error rate as percentage
+  
+  int32 endpoint_count = 11;    // Number of endpoints (backing pods)
+}
+
+// ============================================================================
+// Node Metrics
+// ============================================================================
+
+/**
+ * NodeMetrics captures metrics for a Kubernetes node.
+ */
+message NodeMetrics {
+  string node_name = 1;
+  
+  double cpu_usage_percent = 2;       // Node CPU usage percentage
+  double memory_usage_percent = 3;    // Node memory usage percentage
+  double disk_usage_percent = 4;      // Node disk usage percentage
+  
+  int32 pod_count = 5;                // How many pods running on node
+  int32 allocatable_pod_slots = 6;    // How many more pods could be scheduled
+  
+  repeated string conditions = 7;     // Node conditions ("Ready", "DiskPressure", etc.)
+  bool schedulable = 8;               // Is node accepting new pod schedules?
+}
+
+// ============================================================================
+// Events & Anomalies
+// ============================================================================
+
+/**
+ * ClusterEvent represents a significant cluster event.
+ */
+message ClusterEvent {
+  int64 timestamp_ms = 1;           // When event occurred
+  string event_type = 2;            // Type: "pod_restart", "deploy", "scale", "node_fail", "config_change"
+  string affected_resource = 3;     // "namespace/pod-name", "namespace/service", "node-1", etc.
+  string severity = 4;              // "info", "warning", "error"
+  string message = 5;               // Human-readable description
+  
+  map<string, string> metadata = 6; // Event-specific details
+  // Examples:
+  // restart event: {"reason": "OOMKilled", "exit_code": "137"}
+  // deploy event: {"old_image": "...", "new_image": "...", "replicas": "3"}
+  // scale event: {"old_count": "2", "new_count": "5"}
+}
+
+// ============================================================================
+// Capability Tracking
+// ============================================================================
+
+/**
+ * CapabilityFlags indicate which data sources are available to the agent.
+ * Used by Component 2 to understand which playbooks are degraded or disabled.
+ */
+message CapabilityFlags {
+  // ========== Data Source Availability ==========
+  bool has_kubernetes_api = 1;      // Can access Kubernetes API (required minimum)
+  bool has_prometheus = 2;          // Can access Prometheus metrics
+  bool has_kubelet_metrics = 3;     // Can access kubelet cAdvisor metrics
+  bool has_logs = 4;                // Can access pod logs
+  bool has_service_mesh = 5;        // Service mesh telemetry available (Istio, Linkerd, etc.)
+  bool has_ebpf = 6;                // eBPF-based observation available (premium)
+  
+  // ========== Canonical Metrics Availability ==========
+  // Which canonical metrics are available? Used by Component 2 to know
+  // what data it can reliably depend on.
+  
+  repeated string available_canonical_metrics = 7;
+  // Examples: ["cpu_usage", "memory_usage", "restart_count", "latency_p99", ...]
+  
+  repeated string missing_canonical_metrics = 8;
+  // Examples: ["network_bytes_sent", "storage_io_latency", ...]
+  
+  // ========== Degradation Explanations ==========
+  repeated string capability_notes = 9;
+  // Free-form notes explaining impact of missing capabilities
+  // Examples:
+  // - "Prometheus unavailable: CPU/memory metrics unavailable; playbook CPU-contention disabled"
+  // - "Service mesh unavailable: latency metrics not available; reduced precision for gRPC playbook"
+  // - "Logs unavailable: crash/OOM patterns cannot be detected"
+  
+  map<string, string> playbook_degradation = 10;
+  // Per-playbook degradation status
+  // Key: playbook_id ("probe-cascade", "cpu-contention", ...)
+  // Value: degradation_status ("full", "partial", "disabled")
+}
+
+// ============================================================================
+// Validation & Constraints
+// ============================================================================
+
+// Note: The following are hints for Component 1 (what it should ensure)
+// and expectations for Component 2 (what it can rely on):
+
+// Constraints:
+// - tenant_id: required, non-empty, max 255 chars
+// - cluster_name: required, non-empty, max 255 chars
+// - timestamp_ms: required, >= 1 (milliseconds since epoch)
+// - All percentages: 0-100 (or NaN if unknown)
+// - All bytes: non-negative
+// - All counts: non-negative
+// - pod_id: format "namespace/pod-name"
+// - service_id: format "namespace/service-name"
+
+// Expectations:
+// - pod_metrics: ideally >50 pods, <10K pods
+// - service_metrics: optional, ideally <1K services
+// - node_metrics: typically 1-100 nodes
+// - events: typically 0-50 events per observation
+// - Latencies in milliseconds, durations in milliseconds
+// - Observation should be serializable and <100MB
+
+// ============================================================================
+// Future Extensions (v1.1+)
+// ============================================================================
+
+// Message FutureMetrics {
+//   // TODO: Multi-cluster support
+//   // TODO: Custom metric support
+//   // TODO: Advanced network observability
+//   // TODO: Storage/PVC deep observability
+// }
+
